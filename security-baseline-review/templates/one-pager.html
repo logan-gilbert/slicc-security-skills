@@ -1,0 +1,107 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<title>Security Baseline Review — Overview — {{SITE_NAME}}</title>
+<style>
+  :root{
+    --ink:#2C2C2C; --muted:#5F5F5F; --faint:#919191; --line:#E4E4E4;
+    --panel:#F5F5F5; --red:#EB1000; --green:#0AA35B; --amber:#FFA311; --blue:#3A63F9;
+  }
+  @page{ size:A4; margin:16mm 14mm; }
+  *{ box-sizing:border-box; }
+  body{ margin:0; font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+        color:var(--ink); font-size:12px; line-height:1.5; }
+  h1{ font-size:24px; margin:0 0 4px; letter-spacing:-.3px; }
+  h2{ font-size:13px; text-transform:uppercase; letter-spacing:.6px; margin:18px 0 6px; color:var(--red); }
+  p{ margin:6px 0; }
+  .cover{ border-top:8px solid var(--red); padding-top:6px; }
+  .brandbar{ display:flex; align-items:center; gap:10px; margin-bottom:22px; }
+  .brandmark{ width:26px; height:23px; }
+  .brandname{ font-weight:700; font-size:13px; letter-spacing:.5px; text-transform:uppercase; }
+  .kicker{ color:var(--red); font-weight:700; text-transform:uppercase; letter-spacing:1.5px; font-size:11px; }
+  .lead{ font-size:13px; color:var(--muted); max-width:640px; }
+  .cols{ display:flex; gap:18px; margin-top:6px; }
+  .col{ flex:1; }
+  .card{ background:var(--panel); border-radius:6px; padding:12px 14px; height:100%; }
+  ul{ margin:6px 0; padding-left:18px; } li{ margin:3px 0; }
+  .no li::marker{ color:var(--faint); }
+  .yes li::marker{ color:var(--green); }
+  .legend{ display:flex; gap:8px; flex-wrap:wrap; margin-top:6px; }
+  .pill{ display:inline-block; padding:2px 9px; border-radius:20px; font-size:10px; font-weight:700;
+         text-transform:uppercase; letter-spacing:.4px; color:#fff; }
+  .st-pass{ background:var(--green); } .st-fail{ background:var(--red); }
+  .st-review{ background:var(--amber); color:#3a2a00; } .st-skipped{ background:var(--faint); }
+  .legend span.d{ font-size:11px; color:var(--muted); margin-right:14px; }
+  .resp{ border-left:4px solid var(--amber); background:var(--panel); padding:12px 14px; border-radius:0 4px 4px 0; }
+  .foot{ margin-top:18px; padding-top:10px; border-top:1px solid var(--line); font-size:10.5px; color:var(--muted); }
+  .cat{ font-weight:600; }
+</style>
+</head>
+<body>
+<section class="cover">
+  <div class="brandbar">
+    <svg class="brandmark" viewBox="0 0 30 26" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+      <path fill="#EB1000" d="M19 0h11v26zM11 0H0v26zM15 9.6L22 26h-4.6l-2.1-5.3H9.9z"/>
+    </svg>
+    <span class="brandname">{{ORG_NAME}}</span>
+  </div>
+  <div class="kicker">Security Baseline Review</div>
+  <h1>What this review covers</h1>
+  <p class="lead">
+    As part of delivering <strong>{{SITE_NAME}}</strong>, {{ORG_NAME}} ran an automated
+    <strong>security baseline review</strong> of the site we built and its integrations. This one-pager
+    explains what that review does and does not include, so you know exactly where your own
+    security program needs to pick up.
+  </p>
+</section>
+
+<div class="cols">
+  <div class="col">
+    <h2>What we check</h2>
+    <div class="card">
+      <ul class="yes">
+        {{COVERAGE_LIST}}
+      </ul>
+    </div>
+  </div>
+  <div class="col">
+    <h2>What this does <u>not</u> include</h2>
+    <div class="card">
+      <ul class="no">
+        <li>Penetration testing or active exploitation</li>
+        <li>Business-logic and access-control depth testing</li>
+        <li>Cloud/infrastructure, DNS, and CDN configuration review</li>
+        <li>Denial-of-service / load / resilience testing</li>
+        <li>Review of third-party services and APIs beyond the delivered site</li>
+        <li>Source-to-runtime supply-chain attestation</li>
+        <li>Ongoing monitoring, alerting, or incident response</li>
+        <li>Formal compliance certification (SOC 2, ISO 27001, etc.)</li>
+      </ul>
+    </div>
+  </div>
+</div>
+
+<h2>How to read the report</h2>
+<div class="legend">
+  <span><span class="pill st-pass">Pass</span> <span class="d">meets the baseline expectation</span></span>
+  <span><span class="pill st-fail">Fail</span> <span class="d">gap to remediate</span></span>
+  <span><span class="pill st-review">Needs attention</span> <span class="d">requires human confirmation</span></span>
+  <span><span class="pill st-skipped">N/A</span> <span class="d">not applicable / not run</span></span>
+</div>
+
+<h2>Your responsibility</h2>
+<div class="resp">
+  This baseline review is a <strong>hygiene check, not a comprehensive audit or certification</strong>.
+  It does not guarantee the absence of vulnerabilities. Before and during production use,
+  <strong>you remain responsible</strong> for a full, independent security assessment (including the
+  items in the right-hand column above), for keeping dependencies and configuration current, and for
+  ongoing monitoring of the site.
+</div>
+
+<div class="foot">
+  Prepared by {{ORG_NAME}} · {{DATE}} · Baseline checklist v{{CHECKLIST_VERSION}}. Accompanies the detailed
+  Security Baseline Review report for {{SITE_NAME}}.
+</div>
+</body>
+</html>

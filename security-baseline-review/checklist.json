@@ -1,0 +1,160 @@
+{
+  "meta": {
+    "name": "EDS Security Baseline Review",
+    "version": "2.0.0",
+    "description": "Automated baseline security-hygiene checklist for delivered Adobe Edge Delivery Services (EDS) sites and their Content Hub / Worker integrations, run in SLICC with browser-observed checks and light, non-destructive probes. This is NOT a comprehensive audit or penetration test.",
+    "categories": [
+      "Secrets Management",
+      "Cross-Site Scripting (XSS)",
+      "HTTP Security Headers",
+      "API & CORS",
+      "Dependencies",
+      "Data Exposure",
+      "Transport Security",
+      "Authentication & Error Handling",
+      "Session & Cookies"
+    ]
+  },
+  "checks": [
+    {
+      "id": "SEC-01",
+      "title": "No secrets or credentials in committed / client-side code",
+      "category": "Secrets Management",
+      "severity": "Critical",
+      "method": "static",
+      "mode": "judgment",
+      "description": "API keys, tokens, passwords, or private keys must never be hardcoded in blocks, scripts, or config. Everything shipped to the browser is public; anything committed is in history forever.",
+      "remediation": "Move secrets to Cloudflare Worker secrets (`wrangler secret put`), environment variables, or a server-side proxy. Never embed them in client JS or commit them. Rotate any secret that was ever committed."
+    },
+    {
+      "id": "SEC-02",
+      "title": "Secret files are gitignored and not tracked",
+      "category": "Secrets Management",
+      "severity": "High",
+      "method": "static",
+      "mode": "automated",
+      "description": "Local secret files (.env, .dev.vars, *.pem) must be listed in .gitignore and must not appear in the tracked file set.",
+      "remediation": "Add secret file patterns to .gitignore and remove any tracked secret files from the index (and scrub history if they were ever committed)."
+    },
+    {
+      "id": "SEC-03",
+      "title": "DOM XSS sinks use trusted/sanitized data only",
+      "category": "Cross-Site Scripting (XSS)",
+      "severity": "High",
+      "method": "both",
+      "mode": "judgment",
+      "description": "Assignments to innerHTML/outerHTML/insertAdjacentHTML, document.write, and eval() are potential XSS sinks. Each must be reviewed to confirm the data written is static/trusted or properly sanitized — not attacker-controlled (API responses, URL params, user input). The live check records whether Trusted Types are enforced.",
+      "remediation": "Build DOM with createElement/textContent, or sanitize with a vetted library / Trusted Types before writing HTML. Reserve innerHTML for static, developer-authored strings and same-origin trusted fragments."
+    },
+    {
+      "id": "SEC-04",
+      "title": "Content Security Policy is defined",
+      "category": "HTTP Security Headers",
+      "severity": "High",
+      "method": "both",
+      "mode": "automated",
+      "description": "A Content-Security-Policy should be present on every page (via head.html meta with move-to-http-header, or set by a Worker/CDN) to constrain script sources and mitigate XSS. Policy weaknesses are reported as evidence.",
+      "remediation": "Define a CSP restricting script-src, object-src 'none', base-uri 'self', and frame-ancestors. Prefer nonces/strict-dynamic over broad allowlists."
+    },
+    {
+      "id": "SEC-05",
+      "title": "Core security response headers are present",
+      "category": "HTTP Security Headers",
+      "severity": "High",
+      "method": "both",
+      "mode": "automated",
+      "description": "Every page response should set X-Content-Type-Options: nosniff, Referrer-Policy, a clickjacking control (frame-ancestors or X-Frame-Options), Strict-Transport-Security, and Permissions-Policy.",
+      "remediation": "Add the missing headers via the EDS headers mechanism, the fronting Worker, or the CDN configuration."
+    },
+    {
+      "id": "SEC-06",
+      "title": "CORS is not wildcard in production",
+      "category": "API & CORS",
+      "severity": "Medium",
+      "method": "both",
+      "mode": "judgment",
+      "description": "Access-Control-Allow-Origin: '*' (or reflecting arbitrary origins) on authenticated or sensitive API surfaces is a finding. The live check issues a cross-origin GET from an unrelated origin and records what the endpoint allows. Broad matching limited to dev/preview only is acceptable.",
+      "remediation": "Restrict allowed origins to an exact production allowlist. Never rely on CORS as an authentication control."
+    },
+    {
+      "id": "SEC-07",
+      "title": "Third-party scripts use Subresource Integrity",
+      "category": "Dependencies",
+      "severity": "Medium",
+      "method": "both",
+      "mode": "automated",
+      "description": "External <script>/<link rel=stylesheet> resources loaded over the network should carry an integrity (SRI) attribute so a compromised CDN cannot inject code. The live check inspects resources actually loaded, including ones injected at runtime.",
+      "remediation": "Add integrity + crossorigin attributes to external resources, or self-host them from the site origin."
+    },
+    {
+      "id": "SEC-08",
+      "title": "No known-vulnerable dependencies",
+      "category": "Dependencies",
+      "severity": "Medium",
+      "method": "static",
+      "mode": "automated-optional",
+      "description": "npm dependencies in package-lock.json should be free of known high/critical advisories (npm advisory database). Requires network access; skipped with a note if unreachable.",
+      "remediation": "Update flagged packages; enable automated dependency updates (Renovate/Dependabot) and run `npm audit` in CI."
+    },
+    {
+      "id": "SEC-09",
+      "title": "No sensitive data in published content / data files",
+      "category": "Data Exposure",
+      "severity": "Medium",
+      "method": "static",
+      "mode": "judgment",
+      "description": "EDS publishes spreadsheet-backed .json and content files. These are public on the live site — confirm none contain PII, internal-only data, or credentials.",
+      "remediation": "Remove sensitive fields from published sheets/content, or move that data behind an authenticated API."
+    },
+    {
+      "id": "SEC-10",
+      "title": "Tokens are not leaked to URLs, logs, or analytics",
+      "category": "Data Exposure",
+      "severity": "Medium",
+      "method": "both",
+      "mode": "judgment",
+      "description": "Secrets/session tokens must not be placed in query strings, logged to the console, or forwarded to analytics/third parties where they can be captured. The live check scans the URLs of every request the pages made.",
+      "remediation": "Send tokens in headers or HttpOnly cookies, never in URLs. Strip secrets from logs and analytics payloads."
+    },
+    {
+      "id": "SEC-11",
+      "title": "HTTPS is enforced and TLS is valid",
+      "category": "Transport Security",
+      "severity": "Low",
+      "method": "live",
+      "mode": "automated",
+      "description": "The site should serve over HTTPS with a certificate the browser accepts, send HSTS, and send http:// visitors to https://. Certificate expiry is not visible from SLICC and is not checked.",
+      "remediation": "Enforce HTTPS + HSTS at the CDN/domain, and confirm the certificate chain is valid and current (monitor expiry)."
+    },
+    {
+      "id": "SEC-12",
+      "title": "Access gating (if expected) is present and fail-closed",
+      "category": "Authentication & Error Handling",
+      "severity": "Info",
+      "method": "both",
+      "mode": "judgment",
+      "description": "If the site is intended to be gated, confirm an auth control exists, denies by default, and fails closed. When protected URLs are supplied, the live check compares responses with and without the browser session. Public-by-default EDS content that is meant to be private is a finding.",
+      "remediation": "Enforce authentication at the Worker/proxy or origin gate; deny by default; fail closed when auth config is missing."
+    },
+    {
+      "id": "SEC-13",
+      "title": "Errors do not leak stack traces or secrets to clients",
+      "category": "Authentication & Error Handling",
+      "severity": "Low",
+      "method": "both",
+      "mode": "judgment",
+      "description": "User-facing error responses should be generic; internal detail (stack traces, upstream error bodies, secrets) belongs in server-side logs only. The live check requests a non-existent path and inspects the error response.",
+      "remediation": "Return generic status codes/messages to clients; log detail server-side without secrets."
+    },
+    {
+      "id": "SEC-14",
+      "title": "Session cookies are Secure and HttpOnly",
+      "category": "Session & Cookies",
+      "severity": "Medium",
+      "method": "live",
+      "mode": "automated",
+      "description": "Cookies that carry a session or auth token must be marked Secure (HTTPS only) and HttpOnly (unreadable by page scripts). SameSite is not reported by SLICC and is not checked.",
+      "remediation": "Set session cookies with Secure; HttpOnly; SameSite=Lax (or Strict), and prefer the __Host- prefix."
+    }
+  ]
+}

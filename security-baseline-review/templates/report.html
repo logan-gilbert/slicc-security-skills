@@ -1,0 +1,149 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<title>Security Baseline Review — {{SITE_NAME}}</title>
+<style>
+  :root{
+    --ink:#2C2C2C; --muted:#5F5F5F; --faint:#919191; --line:#E4E4E4;
+    --panel:#F5F5F5; --white:#FFFFFF;
+    --red:#EB1000; --green:#0AA35B; --amber:#FFA311; --blue:#3A63F9;
+  }
+  @page{ size:A4; margin:16mm 14mm 18mm 14mm; }
+  *{ box-sizing:border-box; }
+  html,body{ margin:0; padding:0; }
+  body{
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+    color:var(--ink); font-size:12px; line-height:1.5;
+  }
+  h1,h2,h3{ line-height:1.2; margin:0 0 6px; }
+  h1{ font-size:26px; letter-spacing:-.3px; }
+  h2{ font-size:16px; margin-top:22px; padding-bottom:5px; border-bottom:2px solid var(--ink); }
+  h3{ font-size:13px; }
+  a{ color:var(--blue); text-decoration:none; }
+  .small{ font-size:10.5px; color:var(--muted); }
+
+  /* cover */
+  .cover{ padding:6px 0 10px; border-top:8px solid var(--red); }
+  .brandbar{ display:flex; align-items:center; gap:10px; margin-bottom:26px; }
+  .brandmark{ width:26px; height:23px; }
+  .brandname{ font-weight:700; font-size:13px; letter-spacing:.5px; text-transform:uppercase; }
+  .cover .kicker{ color:var(--red); font-weight:700; text-transform:uppercase; letter-spacing:1.5px; font-size:11px; }
+  .meta-grid{ display:grid; grid-template-columns:auto 1fr; gap:3px 18px; margin:18px 0; max-width:520px; }
+  .meta-grid dt{ color:var(--faint); text-transform:uppercase; font-size:10px; letter-spacing:.5px; }
+  .meta-grid dd{ margin:0; font-weight:600; }
+
+  .disclaimer{ background:var(--panel); border-left:4px solid var(--amber); padding:12px 14px; margin:16px 0; border-radius:0 4px 4px 0; }
+  .disclaimer strong{ color:var(--ink); }
+
+  /* score */
+  .scorecard{ display:flex; gap:10px; margin:14px 0; }
+  .scorecard .cell{ flex:1; background:var(--panel); border-radius:6px; padding:12px 14px; text-align:center; }
+  .scorecard .num{ font-size:26px; font-weight:700; line-height:1; }
+  .scorecard .lbl{ font-size:10px; text-transform:uppercase; letter-spacing:.5px; color:var(--muted); margin-top:5px; }
+  .n-pass{ color:var(--green); } .n-fail{ color:var(--red); } .n-review{ color:var(--amber); } .n-skip{ color:var(--faint); }
+
+  /* table */
+  table{ width:100%; border-collapse:collapse; margin:10px 0; }
+  th,td{ text-align:left; padding:7px 8px; border-bottom:1px solid var(--line); vertical-align:top; }
+  th{ font-size:10px; text-transform:uppercase; letter-spacing:.5px; color:var(--faint); border-bottom:2px solid var(--ink); }
+  td.id{ font-family:"JetBrains Mono",ui-monospace,Menlo,monospace; font-weight:600; white-space:nowrap; }
+
+  .pill{ display:inline-block; padding:2px 9px; border-radius:20px; font-size:10px; font-weight:700;
+         text-transform:uppercase; letter-spacing:.4px; color:#fff; }
+  .st-pass{ background:var(--green); } .st-fail{ background:var(--red); }
+  .st-review{ background:var(--amber); color:#3a2a00; } .st-skipped{ background:var(--faint); }
+
+  .sev{ font-weight:700; }
+  .sev-Critical{ color:var(--red); } .sev-High{ color:var(--red); }
+  .sev-Medium{ color:var(--amber); } .sev-Low{ color:var(--blue); } .sev-Info{ color:var(--muted); }
+
+  /* detail cards */
+  .finding{ border:1px solid var(--line); border-radius:6px; padding:12px 14px; margin:10px 0; page-break-inside:avoid; }
+  .finding .head{ display:flex; justify-content:space-between; align-items:baseline; gap:10px; }
+  .finding .cat{ font-size:10px; text-transform:uppercase; letter-spacing:.5px; color:var(--faint); }
+  .finding p{ margin:6px 0; }
+  .evidence{ background:#1e1e1e; color:#e8e8e8; border-radius:5px; padding:8px 10px; margin:8px 0 4px;
+             font-family:"JetBrains Mono",ui-monospace,Menlo,monospace; font-size:10px; white-space:pre-wrap; word-break:break-word; }
+  .evidence .loc{ color:#7fb2ff; } .evidence .note{ color:#ffd27f; }
+  .tag-ai{ display:inline-block; margin-left:6px; padding:0 6px; border-radius:3px; font-size:9px; font-weight:700;
+           text-transform:uppercase; letter-spacing:.4px; background:var(--panel); color:var(--muted); border:1px solid var(--line); }
+  .remediation{ border-left:3px solid var(--green); padding:4px 0 4px 12px; margin:8px 0 2px; }
+  .remediation .lbl{ font-size:10px; text-transform:uppercase; letter-spacing:.5px; color:var(--green); font-weight:700; }
+  .footer-note{ margin-top:26px; padding-top:10px; border-top:1px solid var(--line); }
+
+  /* changes-since-baseline panel */
+  .changes{ border:1px solid var(--line); border-radius:6px; padding:12px 14px; margin:16px 0; page-break-inside:avoid; }
+  .changes h3{ margin-bottom:8px; }
+  .changes .grp{ margin:6px 0; }
+  .changes .grp .lbl{ font-size:10px; font-weight:700; text-transform:uppercase; letter-spacing:.5px; }
+  .changes .reg .lbl{ color:var(--red); } .changes .fix .lbl{ color:var(--green); }
+  .changes .add .lbl,.changes .rem .lbl{ color:var(--muted); }
+  .changes ul{ margin:3px 0 6px; padding-left:18px; }
+  .changes li{ margin:1px 0; }
+  .changes .none{ color:var(--green); font-weight:600; }
+  .chg-arrow{ font-family:"JetBrains Mono",ui-monospace,Menlo,monospace; font-size:10px; color:var(--faint); }
+</style>
+</head>
+<body>
+
+<section class="cover">
+  <div class="brandbar">
+    <svg class="brandmark" viewBox="0 0 30 26" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+      <path fill="#EB1000" d="M19 0h11v26zM11 0H0v26zM15 9.6L22 26h-4.6l-2.1-5.3H9.9z"/>
+    </svg>
+    <span class="brandname">{{ORG_NAME}}</span>
+  </div>
+  <div class="kicker">Security Baseline Review</div>
+  <h1>{{SITE_NAME}}</h1>
+  <dl class="meta-grid">
+    <dt>Target repository</dt><dd>{{REPO}}</dd>
+    <dt>Live URL</dt><dd>{{LIVE_URL}}</dd>
+    <dt>Reviewed by</dt><dd>{{REVIEWER}}</dd>
+    <dt>Date</dt><dd>{{DATE}}</dd>
+    <dt>Checklist version</dt><dd>{{CHECKLIST_VERSION}}</dd>
+  </dl>
+
+  <div class="scorecard">
+    <div class="cell"><div class="num n-pass">{{N_PASS}}</div><div class="lbl">Passed</div></div>
+    <div class="cell"><div class="num n-fail">{{N_FAIL}}</div><div class="lbl">Failed</div></div>
+    <div class="cell"><div class="num n-review">{{N_REVIEW}}</div><div class="lbl">Needs attention</div></div>
+    <div class="cell"><div class="num n-skip">{{N_SKIP}}</div><div class="lbl">Not applicable</div></div>
+  </div>
+
+  <div class="disclaimer">
+    <strong>Scope &amp; limitations.</strong> This is an <strong>automated baseline review</strong> of common
+    web-security hygiene items for the delivered site. It is <strong>not a comprehensive security audit or a
+    penetration test</strong>, and it does not certify the site as secure or guarantee the absence of
+    vulnerabilities. The customer remains responsible for a full, independent security assessment before and
+    during production use. Findings reflect the state of the reviewed code and live endpoint on the date above.
+  </div>
+</section>
+
+{{CHANGES_PANEL}}
+
+<h2>Summary of checks</h2>
+<table>
+  <thead><tr><th>ID</th><th>Check</th><th>Category</th><th>Severity</th><th>Result</th></tr></thead>
+  <tbody>
+    {{SUMMARY_ROWS}}
+  </tbody>
+</table>
+
+<h2>Findings &amp; detail</h2>
+{{DETAIL_CARDS}}
+
+<div class="footer-note small">
+  <strong>Methodology.</strong> Static analysis of the delivered repository (secrets, DOM XSS sinks, CSP/header
+  configuration, CORS, third-party integrity, dependency manifest, published data, error handling) combined with
+  live checks in a real browser: security headers on each reviewed page, cookies, resources actually loaded,
+  request URLs, and HTTPS enforcement. Light, non-destructive probes were limited to a cross-origin GET, a request
+  for a non-existent path, and (where protected URLs were supplied) a comparison of responses with and without the
+  reviewer's session. No fuzzing, brute-force, authentication bypass, or payload injection was performed. Judgment
+  items marked <em>AI-assisted</em> were assessed by an AI reviewer and confirmed by the named reviewer. Checks
+  marked <em>Needs attention</em> require human confirmation or remediation. Generated by the {{ORG_NAME}} Security
+  Baseline Review skill v{{CHECKLIST_VERSION}}.
+</div>
+
+</body>
+</html>
