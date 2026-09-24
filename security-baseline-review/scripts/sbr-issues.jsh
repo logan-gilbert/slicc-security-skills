@@ -154,6 +154,22 @@ if (flags.create || flags.close) {
     if (info.visibility === 'public' && !flags['allow-public']) {
       cli.die(`${plan.repo} is PUBLIC. Filing security findings there discloses them to everyone before they are fixed. Re-run with --allow-public only if that is acceptable.`);
     }
+    plan.visibility = info.visibility;
+    // The draft-time lookup may have been skipped or be stale; never file a duplicate.
+    let current;
+    try {
+      current = await openMarkedIssues(gh, plan.repo);
+    } catch (e) {
+      cli.die(`could not check ${plan.repo} for existing issues (${e.message}); nothing was filed`);
+    }
+    for (const a of plan.actions) {
+      if (a.action === 'create' && !a.done && current[a.id]) {
+        a.action = 'comment';
+        a.issue_number = current[a.id].number;
+        a.issue_url = current[a.id].url;
+        console.log(`${a.id}: #${a.issue_number} already exists — adding a comment instead of a duplicate issue`);
+      }
+    }
     let labels = [lib.ISSUE_LABEL];
     try {
       await gh('GET', `/repos/${plan.repo}/labels/${lib.ISSUE_LABEL}`);

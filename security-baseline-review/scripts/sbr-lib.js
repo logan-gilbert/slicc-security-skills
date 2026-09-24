@@ -265,8 +265,15 @@ async function gitOriginUrl(repoPath) {
   }
 }
 
-// Same credential file SLICC's git uses (GitHub sign-in or `git config github.token`); masked, unmasked by the fetch proxy.
+// Masked token, unmasked by the fetch proxy; `git config github.token` sees what SLICC's git uses even when the file is not visible to this realm.
 async function githubToken() {
+  try {
+    const r = await exec.spawn(['git', 'config', 'github.token']);
+    const t = r.exitCode === 0 ? String(r.stdout).trim().split('\n')[0].trim() : '';
+    if (t && !/\s/.test(t)) return t;
+  } catch {
+    /* git config unavailable */
+  }
   try {
     const t = String(await fs.readFile('/workspace/.git/github-token')).trim();
     if (t) return t;
