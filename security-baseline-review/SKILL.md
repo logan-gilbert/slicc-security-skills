@@ -29,6 +29,7 @@ re-derive their logic in prose.
 | `sbr-adjudicate` | Parallel read-only sub-agents resolve every `review` check             | findings       |
 | `sbr-report`     | HTML + CSV (+ PDF with `--pdf`) report and one-pager                   | findings       |
 | `sbr-diff`       | Console diff against a prior `findings.json`                           | two findings   |
+| `sbr-issues`     | Drafts one GitHub issue per failed check with codebase-specific remediation; `--confirm`, `--create`, `--close` | code, GitHub sign-in |
 | `sbr-review`     | Runs all of the above in order, stopping at the first failure; can clone the repo itself (`--repo-url`) | —              |
 
 All commands take `--out <dir>` (default `/workspace/security-review-out`) and `--help`.
@@ -91,6 +92,29 @@ the baseline, which judgments were AI-assisted, and the output paths:
 (**retain it as the next review's `--baseline`**), and `browse/pages.json` (raw browser evidence).
 Reiterate that this is a baseline, not a full audit.
 
+## 5. Offer GitHub issues (only when code was reviewed)
+
+`sbr-review` ends by running `sbr-issues`, which drafts one issue per failed check into
+`<out>/issues/SEC-xx.md` and writes `<out>/issues/plan.json`. Each draft has codebase-specific,
+step-by-step remediation written by a read-only sub-agent. Nothing is filed yet.
+
+- **Live-only review, or no failed checks and nothing to close:** say nothing about issues.
+- **Otherwise, in chat:**
+  1. Show the preview (`sbr-issues --preview --out <out>`): each check, severity, and whether it will
+     *create* an issue or *comment* on an existing one. Offer to open any draft.
+  2. For each **AI-assisted** failure, ask the user to confirm it (show the reviewer note). Only on a
+     yes, run `sbr-issues --out <out> --confirm SEC-xx[,SEC-yy] --by <reviewer>`. Unconfirmed
+     AI-assisted failures are never filed; mechanical failures count as confirmed.
+  3. If the preview says the repository is **public**, warn that filing discloses the findings to
+     everyone before they are fixed, and only add `--allow-public` if the user explicitly agrees.
+  4. Ask "Create N issue(s) and add M comment(s) in <org/repo>?" Only on a yes, run
+     `sbr-issues --out <out> --create [--allow-public]` and share the issue links it prints.
+  5. If there are **close candidates** (open issues whose check now passes), ask whether to close
+     them; on a yes, run `sbr-issues --out <out> --close SEC-xx[,...]`.
+- Filing needs the GitHub sign-in (Settings → Providers → GitHub); the org may need to approve
+  SLICC's GitHub app. If drafting ran after the clone was removed, re-run with `--repo` or `--keep-clone`.
+- `--create` files exactly the previewed drafts and refuses if `findings.json` changed since drafting.
+
 ## Test posture (do not exceed)
 
 Allowed: page loads, observing headers / cookies / requests / DOM, GET requests, one GET for a
@@ -117,4 +141,5 @@ load generation, or testing a site the user has not confirmed they may test.
 - Don't deliver a report with unconfirmed AI-assisted `fail`s or a DRAFT stamp.
 - Don't paste secret values, cookie values, or tokens into notes or chat — evidence is already masked.
 - Don't keep or share `auth-state.json`: it holds live session cookies. Delete it after the review.
+- Don't run `sbr-issues --create`, `--close`, `--confirm` or `--allow-public` without the user's explicit yes in chat.
 - Don't hand-edit checks into the scripts; tune `checklist.json` (data) instead.

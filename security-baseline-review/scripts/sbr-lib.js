@@ -246,6 +246,76 @@ function printSummary(checks, ids) {
   }
 }
 
+const ISSUE_LABEL = 'security-baseline';
+
+function parseGithubRepo(url) {
+  const s = String(url || '').trim();
+  const m = /^git@github\.com:([\w.-]+)\/([\w.-]+?)(?:\.git)?\/?$/.exec(s)
+    || /^(?:https?|ssh|git):\/\/(?:[^@/\s]+@)?github\.com(?::\d+)?\/([\w.-]+)\/([\w.-]+?)(?:\.git)?\/?$/.exec(s);
+  return m ? `${m[1]}/${m[2]}` : null;
+}
+
+async function gitOriginUrl(repoPath) {
+  try {
+    const cfg = String(await fs.readFile(`${stripSlash(repoPath)}/.git/config`));
+    const m = /\[remote "origin"\][^[]*?\burl\s*=\s*(\S+)/.exec(cfg);
+    return m ? m[1] : null;
+  } catch {
+    return null;
+  }
+}
+
+// Same credential file SLICC's git uses (GitHub sign-in or `git config github.token`); masked, unmasked by the fetch proxy.
+async function githubToken() {
+  try {
+    const t = String(await fs.readFile('/workspace/.git/github-token')).trim();
+    if (t) return t;
+  } catch {
+    /* not signed in */
+  }
+  return (process.env && (process.env.GH_TOKEN || process.env.GITHUB_TOKEN)) || null;
+}
+
+function githubClient(token) {
+  return async function gh(method, path, body) {
+    const headers = { Accept: 'application/vnd.github+json', 'X-GitHub-Api-Version': '2022-11-28' };
+    if (token) headers.Authorization = `Bearer ${token}`;
+    if (body) headers['Content-Type'] = 'application/json';
+    const r = await fetch(`https://api.github.com${path}`, { method, headers, body: body ? JSON.stringify(body) : undefined });
+    const text = await r.text();
+    let data = null;
+    try {
+      data = text ? JSON.parse(text) : null;
+    } catch {
+      data = text;
+    }
+    if (!r.ok) {
+      const err = new Error(`GitHub ${method} ${path.split('?')[0]}: HTTP ${r.status}${data && data.message ? ` — ${data.message}` : ''}`);
+      err.status = r.status;
+      throw err;
+    }
+    return data;
+  };
+}
+
+function issueMarker(id, repo) {
+  return `<!-- sbr:check=${id} repo=${repo} -->`;
+}
+
+function parseIssueMarker(body) {
+  const m = /<!-- sbr:check=(SEC-\d+) repo=([\w.-]+\/[\w.-]+) -->/.exec(String(body || ''));
+  return m ? { id: m[1], repo: m[2] } : null;
+}
+
+// Excludes confirmation fields so confirming a failure does not invalidate a previewed plan.
+function findingsFingerprint(doc) {
+  const checks = (doc && doc.checks) || {};
+  const s = JSON.stringify(Object.keys(checks).sort().map((id) => [id, checks[id].status, checks[id].evidence, checks[id].reviewer_note]));
+  let h = 5381;
+  for (let i = 0; i < s.length; i++) h = ((h * 33) ^ s.charCodeAt(i)) >>> 0;
+  return h.toString(16);
+}
+
 module.exports = {
   ROOT,
   TEMPLATES,
@@ -276,4 +346,12 @@ module.exports = {
   sleep,
   computeDiff,
   printSummary,
+  ISSUE_LABEL,
+  parseGithubRepo,
+  gitOriginUrl,
+  githubToken,
+  githubClient,
+  issueMarker,
+  parseIssueMarker,
+  findingsFingerprint,
 };

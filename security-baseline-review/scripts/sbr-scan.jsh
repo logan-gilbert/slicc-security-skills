@@ -220,6 +220,7 @@ const doc = {
   target_repo: REPO,
   target_repo_url: flags['source-url'] ? String(flags['source-url']) : undefined,
   target_commit: commit || undefined,
+  target_github: lib.parseGithubRepo(flags['source-url']) || lib.parseGithubRepo(await lib.gitOriginUrl(REPO)) || undefined,
   review_date: new Date().toISOString().slice(0, 10),
   files_scanned: files.length,
 };

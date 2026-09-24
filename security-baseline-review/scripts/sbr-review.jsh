@@ -13,6 +13,7 @@
 // --repo-url clones into /workspace/sbr-src/ (private repos: sign in under Settings → Providers → GitHub);
 //   the clone is deleted after a successful run unless --keep-clone is given.
 // With neither --repo nor --repo-url (but --url), runs a live-only review; code checks show as not run.
+// When code was scanned, finishes by drafting GitHub issues for failed checks (sbr-issues; --no-issues skips).
 
 const cli = require('sliccy:cli');
 const { exec } = require('sliccy:exec');
@@ -20,7 +21,7 @@ const lib = require('./sbr-lib.js');
 
 const { flags } = process.argv.parseFlags();
 if (flags.help || !flags['site-name'] || (!flags.repo && !flags['repo-url'] && !flags.url)) {
-  cli.help('Usage: sbr-review --site-name <name> [--repo <vfs-path> | --repo-url <https://github.com/org/repo> [--ref <branch|tag>] [--keep-clone]] [--url <https://site>] [--out <dir>] [--org Adobe] [--reviewer <email>] [--baseline <findings.json>] [--pdf] [--pages ...] [--max-pages 5] [--protected ...] [--api ...] [--no-probes] [--login] [--login-timeout 300] [--state <file>] [--app-host <host>] [--omit-dev] [--concurrency 4] [--model <id>] [--no-browser] [--no-adjudicate] [--draft] [--open]\nNeeds --repo, --repo-url, or (for a live-only review) --url.');
+  cli.help('Usage: sbr-review --site-name <name> [--repo <vfs-path> | --repo-url <https://github.com/org/repo> [--ref <branch|tag>] [--keep-clone]] [--url <https://site>] [--out <dir>] [--org Adobe] [--reviewer <email>] [--baseline <findings.json>] [--pdf] [--pages ...] [--max-pages 5] [--protected ...] [--api ...] [--no-probes] [--login] [--login-timeout 300] [--state <file>] [--app-host <host>] [--omit-dev] [--concurrency 4] [--model <id>] [--no-browser] [--no-adjudicate] [--no-issues] [--draft] [--open]\nNeeds --repo, --repo-url, or (for a live-only review) --url.');
   process.exit(flags.help ? 0 : 2);
 }
 if (flags.repo && flags['repo-url']) cli.die('use either --repo or --repo-url, not both', 2);
@@ -100,6 +101,14 @@ for (const argv of stages) {
     failure = { stage: argv[0], code: r.exitCode };
     break;
   }
+}
+if (!failure && repo && !flags['no-issues']) {
+  const issuesArgv = ['sbr-issues', '--out', out, ...pass(['concurrency', 'model'])];
+  console.log(`\n▶ ${issuesArgv.join(' ')}`);
+  const r = await exec.spawn(issuesArgv);
+  if (r.stdout) process.stdout.write(r.stdout);
+  if (r.stderr) process.stderr.write(r.stderr);
+  if (r.exitCode !== 0) console.log('  (issue drafting failed; the report is unaffected — re-run sbr-issues with --repo access to retry)');
 }
 if (clonePath) {
   // Kept after a failure so individual stages can be re-run against it.
