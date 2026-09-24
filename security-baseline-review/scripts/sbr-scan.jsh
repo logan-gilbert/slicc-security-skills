@@ -1,6 +1,6 @@
 // sbr-scan — static scan of a delivered EDS repo (port of run_static_checks.py).
 //
-// Usage: sbr-scan --repo <vfs-path> [--out <dir>]
+// Usage: sbr-scan --repo <vfs-path> [--out <dir>] [--source-url <repo url>]
 //   --repo  repo in the VFS: `mount /mnt/site` (local folder) or `git clone <url> /workspace/site`
 //   --out   output dir (default /workspace/security-review-out); writes <out>/findings.json
 //
@@ -14,7 +14,7 @@ const lib = require('./sbr-lib.js');
 
 const { flags } = process.argv.parseFlags();
 if (flags.help || !flags.repo) {
-  cli.help('Usage: sbr-scan --repo <vfs-path> [--out <dir>]');
+  cli.help('Usage: sbr-scan --repo <vfs-path> [--out <dir>] [--source-url <repo url>]');
   process.exit(flags.help ? 0 : 2);
 }
 const REPO = lib.stripSlash(String(flags.repo));
@@ -151,6 +151,8 @@ const present = {
 };
 const notIgnored = Object.keys(present).filter((k) => present[k] && !ignoredText.includes(k));
 const ls = await exec(`cd ${lib.shq(REPO)} && git ls-files`);
+const rev = await exec(`cd ${lib.shq(REPO)} && git rev-parse --short HEAD`);
+const commit = rev.exitCode === 0 && /^[0-9a-f]{4,40}$/i.test(rev.stdout.trim()) ? rev.stdout.trim() : '';
 const tracked = ls.exitCode === 0
   ? ls.stdout.split('\n').filter((f) => {
     const b = base(f);
@@ -216,6 +218,8 @@ const doc = {
   checks: res,
   checklist: { name: checklist.meta.name, version: checklist.meta.version },
   target_repo: REPO,
+  target_repo_url: flags['source-url'] ? String(flags['source-url']) : undefined,
+  target_commit: commit || undefined,
   review_date: new Date().toISOString().slice(0, 10),
   files_scanned: files.length,
 };

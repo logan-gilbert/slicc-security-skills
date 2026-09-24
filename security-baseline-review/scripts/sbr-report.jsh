@@ -86,7 +86,11 @@ const sorted = [...order].sort((a, b) => {
 });
 for (const id of sorted) {
   const c = meta[id];
-  const f = fchecks[id] || { status: 'skipped', evidence: [], auto_note: 'Not run.' };
+  const f = fchecks[id] || {
+    status: 'skipped',
+    evidence: [],
+    auto_note: findings.code_access === false ? 'Not run: no code access (live-only review).' : 'Not run.',
+  };
   const st = STATUS_ORDER[f.status] === undefined ? 'skipped' : f.status;
   counts[st]++;
   summaryRows.push(`<tr><td class='id'>${esc(id)}</td><td>${esc(c.title)}</td><td>${esc(c.category)}</td>`
@@ -108,7 +112,9 @@ const draftBanner = DRAFT && unresolved.length
 const reportHtml = fill(await fs.readFile(`${lib.TEMPLATES}/report.html`), {
   SITE_NAME: esc(DRAFT ? `${SITE} (DRAFT)` : SITE),
   ORG_NAME: esc(ORG),
-  REPO: esc(findings.target_repo || '—'),
+  REPO: esc(findings.code_access === false
+    ? 'Not reviewed (no code access)'
+    : `${findings.target_repo_url || findings.target_repo || '—'}${findings.target_commit ? ` @ ${findings.target_commit}` : ''}`),
   LIVE_URL: esc(findings.live_url || '—'),
   REVIEWER: esc(REVIEWER),
   DATE: esc(DATE),

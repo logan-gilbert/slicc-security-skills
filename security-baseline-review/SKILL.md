@@ -29,7 +29,7 @@ re-derive their logic in prose.
 | `sbr-adjudicate` | Parallel read-only sub-agents resolve every `review` check             | findings       |
 | `sbr-report`     | HTML + CSV (+ PDF with `--pdf`) report and one-pager                   | findings       |
 | `sbr-diff`       | Console diff against a prior `findings.json`                           | two findings   |
-| `sbr-review`     | Runs all of the above in order, stopping at the first failure          | —              |
+| `sbr-review`     | Runs all of the above in order, stopping at the first failure; can clone the repo itself (`--repo-url`) | —              |
 
 All commands take `--out <dir>` (default `/workspace/security-review-out`) and `--help`.
 
@@ -37,8 +37,12 @@ All commands take `--out <dir>` (default `/workspace/security-review-out`) and `
 
 Ask for whatever is missing:
 
-- **Repo** (required) — get it into the VFS: `mount /mnt/<site>` (local folder; cone only, needs the
-  user's click) or `git clone <url> /workspace/<site>`. For EDS content, `mount --source da://<org>/<repo> /mnt/<site>-content`
+- **Repo** — easiest is the URL: `sbr-review --repo-url https://github.com/<org>/<repo> [--ref <branch|tag>]`
+  clones it (shallow) into `/workspace/sbr-src/`, scans it, and deletes the clone after a successful run
+  (`--keep-clone` to keep it). Private repos need the user signed in under **Settings → Providers → GitHub**;
+  never put a token in the URL. A local checkout also works: `mount /mnt/<site>` (cone only, needs the
+  user's click), then `--repo /mnt/<site>`. With no code access, omit both for a **live-only** review:
+  code checks show as not run and the report says so. For EDS content, `mount --source da://<org>/<repo> /mnt/<site>-content`
   lets you read published sheets for SEC-09.
 - **Live URL** (recommended) and **authorization**: confirm the user is authorized to test that
   site. Without explicit confirmation, run `sbr-browse --no-probes` (observation only).
@@ -53,7 +57,7 @@ Ask for whatever is missing:
 ## 2. Run the review
 
 ```bash
-sbr-review --repo /mnt/site --url https://site.example --site-name "Site Name" \
+sbr-review --repo-url https://github.com/org/site --url https://site.example --site-name "Site Name" \
   --reviewer me@adobe.com --protected /api/me,/private --login --pdf --open
 ```
 
