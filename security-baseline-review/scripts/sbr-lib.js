@@ -173,7 +173,7 @@ function analyzeHeaders(rawHeaders, metaCsp) {
   };
 }
 
-async function walk(root, skipDirs, maxBytes) {
+async function walk(root, skipDirs, maxBytes, skipPath) {
   const out = [];
   async function visit(dir) {
     let names;
@@ -191,7 +191,7 @@ async function walk(root, skipDirs, maxBytes) {
         continue;
       }
       if (st.isDirectory) {
-        if (!skipDirs.has(name)) await visit(p);
+        if (!skipDirs.has(name) && !(skipPath && skipPath(p))) await visit(p);
       } else if (st.isFile && (!maxBytes || st.size <= maxBytes)) {
         out.push(p);
       }
@@ -314,13 +314,16 @@ function parseIssueMarker(body) {
   return m ? { id: m[1], repo: m[2] } : null;
 }
 
-// Excludes confirmation fields so confirming a failure does not invalidate a previewed plan.
-function findingsFingerprint(doc) {
-  const checks = (doc && doc.checks) || {};
-  const s = JSON.stringify(Object.keys(checks).sort().map((id) => [id, checks[id].status, checks[id].evidence, checks[id].reviewer_note]));
+function hashString(s) {
   let h = 5381;
   for (let i = 0; i < s.length; i++) h = ((h * 33) ^ s.charCodeAt(i)) >>> 0;
   return h.toString(16);
+}
+
+// Excludes confirmation fields so confirming a failure does not invalidate a previewed plan.
+function findingsFingerprint(doc) {
+  const checks = (doc && doc.checks) || {};
+  return hashString(JSON.stringify(Object.keys(checks).sort().map((id) => [id, checks[id].status, checks[id].evidence, checks[id].reviewer_note])));
 }
 
 module.exports = {
@@ -360,5 +363,6 @@ module.exports = {
   githubClient,
   issueMarker,
   parseIssueMarker,
+  hashString,
   findingsFingerprint,
 };

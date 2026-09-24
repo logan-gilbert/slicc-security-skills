@@ -1,7 +1,7 @@
 // sbr-issues — turn confirmed failed checks into GitHub issues with codebase-specific remediation steps.
 //
 // Usage:
-//   sbr-issues [--out <dir>] [--concurrency 4] [--model <id>]   draft (default): write <out>/issues/*.md + plan.json, print preview
+//   sbr-issues [--out <dir>] [--concurrency 8] [--model <id>]   draft (default): write <out>/issues/*.md + plan.json, print preview
 //   sbr-issues --preview [--out <dir>]                          print the preview of the existing plan
 //   sbr-issues --confirm SEC-03,SEC-10 [--by <name>]            confirm AI-assisted failures so they can be filed
 //   sbr-issues --create [--allow-public]                        file exactly what the plan previews (new issues + comments)
@@ -354,7 +354,7 @@ function render(id, f, d, kind) {
   return lines.join('\n') + '\n';
 }
 
-const CONCURRENCY = Math.min(8, Math.max(1, Number(flags.concurrency || 4)));
+const CONCURRENCY = Math.min(8, Math.max(1, Number(flags.concurrency || 8)));
 console.log(`Drafting remediation for ${failed.length} failed check(s) with up to ${CONCURRENCY} parallel sub-agent(s)…`);
 const drafts = await pool(CONCURRENCY, failed, async (id) => {
   try {

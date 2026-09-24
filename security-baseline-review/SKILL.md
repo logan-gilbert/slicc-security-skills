@@ -81,6 +81,11 @@ read commands only, structured output). Results are tagged `adjudicated_by: "ai"
 and stamps the report DRAFT (never send a draft to a customer). Use `sbr-adjudicate --dry-run` to
 see the exact prompts, `--ids SEC-03` to redo one check.
 
+Verdicts are reused from `<out>/adjudication-cache.json` when a check's evidence is identical to an
+earlier run (shown as "reused from <date>"). Reused verdicts are still AI-assisted and still need the
+reviewer's confirmation; `--no-cache` (on `sbr-review` or `sbr-adjudicate`) forces fresh judgments.
+`sbr-review` prints per-stage timings at the end; use them when a run feels slow.
+
 Calibration: a mature site (strict CSP, secrets in Worker secrets, Trusted Types) should
 legitimately PASS. A wall of false positives destroys the report's credibility.
 

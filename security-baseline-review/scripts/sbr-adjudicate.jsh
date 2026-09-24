@@ -1,11 +1,14 @@
 // sbr-adjudicate — resolve `review` checks with parallel read-only sub-agents (structured output).
 //
-// Usage: sbr-adjudicate [--out <dir>] [--ids SEC-03,SEC-09] [--concurrency 4] [--model <id>] [--redo] [--dry-run]
+// Usage: sbr-adjudicate [--out <dir>] [--ids SEC-03,SEC-09] [--concurrency 8] [--model <id>] [--redo] [--no-cache] [--dry-run]
 //
 // Each unresolved `review` check goes to its own sub-agent, which may only read the
 // target repo and the output dir. Results are tagged AI-assisted; the named reviewer
 // must confirm them before the report goes to a customer.
+// A verdict is reused from <out>/adjudication-cache.json when the check's evidence is
+// unchanged since an earlier run (--no-cache or --redo forces a fresh judgment).
 
+const fs = require('fs');
 const cli = require('sliccy:cli');
 const agent = require('sliccy:agent');
 const pool = require('sliccy:pool');
@@ -13,12 +16,13 @@ const lib = require('./sbr-lib.js');
 
 const { flags } = process.argv.parseFlags();
 if (flags.help) {
-  cli.help('Usage: sbr-adjudicate [--out <dir>] [--ids SEC-03,SEC-09] [--concurrency 4] [--model <id>] [--redo] [--dry-run]');
+  cli.help('Usage: sbr-adjudicate [--out <dir>] [--ids SEC-03,SEC-09] [--concurrency 8] [--model <id>] [--redo] [--no-cache] [--dry-run]');
   process.exit(0);
 }
 const OUT = lib.stripSlash(String(flags.out || '/workspace/security-review-out'));
 const findingsPath = `${OUT}/findings.json`;
-const CONCURRENCY = Math.min(8, Math.max(1, Number(flags.concurrency || 4)));
+const CACHE_PATH = `${OUT}/adjudication-cache.json`;
+const CONCURRENCY = Math.min(8, Math.max(1, Number(flags.concurrency || 8)));
 const onlyIds = flags.ids ? new Set(String(flags.ids).split(',').map((s) => s.trim())) : null;
 
 const GUIDANCE = {
@@ -85,8 +89,44 @@ if (flags['dry-run']) {
 }
 
 const readOnly = [repo, OUT].filter(Boolean).join(',');
-console.log(`Adjudicating ${todo.length} check(s) with up to ${CONCURRENCY} parallel sub-agent(s)…`);
-const results = await pool(CONCURRENCY, todo, async ([id, f]) => {
+const target = doc.target_github || doc.target_repo_url || doc.live_url || repo;
+// Probe paths and byte counts change every run and would otherwise defeat reuse.
+const normEv = (e) => [e.file, e.line, e.snippet, e.note].map((v) => String(v ?? '')
+  .replace(/sbr-probe-not-found-[a-z0-9]+/g, 'sbr-probe').replace(/\d+ byte\(s\)/g, 'N byte(s)'));
+const cacheKey = (id, f) => lib.hashString(JSON.stringify([id, target, (meta[id] || {}).description, GUIDANCE[id] || '', (f.evidence || []).map(normEv)]));
+let cache = {};
+if (!flags['no-cache'] && !flags.redo && (await fs.exists(CACHE_PATH))) {
+  try {
+    cache = await lib.readJson(CACHE_PATH);
+  } catch {
+    cache = {};
+  }
+}
+
+function apply(id, verdict) {
+  const f = doc.checks[id];
+  const keep = [...new Set(verdict.keep || [])].filter((i) => i >= 0 && i < (f.evidence || []).length).sort((a, b) => a - b);
+  f.evidence = keep.length ? keep.map((i) => f.evidence[i]) : f.evidence;
+  f.status = verdict.status;
+  f.reviewer_note = verdict.reviewer_note;
+  f.adjudicated_by = verdict.adjudicated_by;
+}
+
+const fresh = [];
+for (const [id, f] of todo) {
+  const key = cacheKey(id, f);
+  const hit = cache[key];
+  if (hit) {
+    apply(id, hit);
+    doc.checks[id].reused_from = hit.date;
+    console.log(`${id.padEnd(8)} ${hit.status.padEnd(8)} (reused from ${hit.date}; evidence unchanged) ${hit.reviewer_note}`);
+  } else {
+    fresh.push([id, f, key]);
+  }
+}
+
+if (fresh.length) console.log(`Adjudicating ${fresh.length} check(s) with up to ${CONCURRENCY} parallel sub-agent(s)…`);
+const results = await pool(CONCURRENCY, fresh, async ([id, f, key]) => {
   try {
     const r = await agent(prompt(id, f), {
       schema: SCHEMA,
@@ -96,26 +136,34 @@ const results = await pool(CONCURRENCY, todo, async ([id, f]) => {
       thinking: 'medium',
       ...(flags.model ? { model: String(flags.model) } : {}),
     });
-    return { id, r };
+    return { id, key, r };
   } catch (e) {
-    return { id, error: e.message };
+    return { id, key, error: e.message };
   }
 });
 
 let failed = 0;
-for (const { id, r, error } of results) {
+const today = new Date().toISOString().slice(0, 10);
+for (const { id, key, r, error } of results) {
   if (error || !r) {
     failed++;
     console.log(`${id.padEnd(8)} ERROR    ${error || 'no result'} (left as review)`);
     continue;
   }
-  const f = doc.checks[id];
-  const keep = [...new Set(r.keep_evidence || [])].filter((i) => i >= 0 && i < (f.evidence || []).length).sort((a, b) => a - b);
-  f.evidence = keep.length ? keep.map((i) => f.evidence[i]) : f.evidence;
-  f.status = r.status;
-  f.reviewer_note = String(r.reviewer_note || '').trim();
-  f.adjudicated_by = flags.model ? `ai:${flags.model}` : 'ai';
-  console.log(`${id.padEnd(8)} ${f.status.padEnd(8)} ${f.reviewer_note}`);
+  const verdict = {
+    status: r.status,
+    reviewer_note: String(r.reviewer_note || '').trim(),
+    keep: r.keep_evidence || [],
+    adjudicated_by: flags.model ? `ai:${flags.model}` : 'ai',
+    date: today,
+  };
+  apply(id, verdict);
+  cache[key] = verdict;
+  console.log(`${id.padEnd(8)} ${verdict.status.padEnd(8)} ${verdict.reviewer_note}`);
+}
+if (!flags['no-cache']) {
+  const entries = Object.entries(cache).sort((a, b) => String(b[1].date).localeCompare(String(a[1].date))).slice(0, 300);
+  await lib.writeJson(CACHE_PATH, Object.fromEntries(entries));
 }
 await lib.writeJson(findingsPath, doc);
 console.log(`\nUpdated ${findingsPath}${failed ? ` — ${failed} check(s) failed to adjudicate` : ''}.`);

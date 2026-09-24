@@ -5,7 +5,7 @@
 //                   [--org Adobe] [--reviewer <email>] [--baseline <findings.json>] [--pdf]
 //                   [--pages /a,/b] [--max-pages 5] [--protected /x,/y] [--api <url,...>] [--no-probes]
 //                   [--login] [--login-timeout 300] [--state <auth-state.json>] [--app-host <host>]
-//                   [--omit-dev] [--concurrency 4] [--model <id>] [--no-browser] [--no-adjudicate]
+//                   [--omit-dev] [--concurrency 8] [--model <id>] [--no-cache] [--no-browser] [--no-adjudicate]
 //                   [--draft] [--open]
 //
 // Stops at the first failing stage. Starts from a fresh findings.json (sbr-scan rewrites it).
@@ -17,11 +17,26 @@
 
 const cli = require('sliccy:cli');
 const { exec } = require('sliccy:exec');
+const T0 = Date.now();
+const timings = [];
+async function timed(label, argv) {
+  const t = Date.now();
+  const r = await exec.spawn(argv);
+  timings.push({ label, ms: Date.now() - t, ok: r.exitCode === 0 });
+  return r;
+}
+function printTimings() {
+  if (!timings.length) return;
+  const fmt = (ms) => `${Math.floor(ms / 60000)}m ${String(Math.round((ms % 60000) / 1000)).padStart(2, '0')}s`;
+  console.log('\nStage timings:');
+  for (const t of timings) console.log(`  ${t.label.padEnd(26)} ${fmt(t.ms).padStart(8)}${t.ok ? '' : '  (failed)'}`);
+  console.log(`  ${'total (wall clock)'.padEnd(26)} ${fmt(Date.now() - T0).padStart(8)}`);
+}
 const lib = require('./sbr-lib.js');
 
 const { flags } = process.argv.parseFlags();
 if (flags.help || !flags['site-name'] || (!flags.repo && !flags['repo-url'] && !flags.url)) {
-  cli.help('Usage: sbr-review --site-name <name> [--repo <vfs-path> | --repo-url <https://github.com/org/repo> [--ref <branch|tag>] [--keep-clone]] [--url <https://site>] [--out <dir>] [--org Adobe] [--reviewer <email>] [--baseline <findings.json>] [--pdf] [--pages ...] [--max-pages 5] [--protected ...] [--api ...] [--no-probes] [--login] [--login-timeout 300] [--state <file>] [--app-host <host>] [--omit-dev] [--concurrency 4] [--model <id>] [--no-browser] [--no-adjudicate] [--no-issues] [--draft] [--open]\nNeeds --repo, --repo-url, or (for a live-only review) --url.');
+  cli.help('Usage: sbr-review --site-name <name> [--repo <vfs-path> | --repo-url <https://github.com/org/repo> [--ref <branch|tag>] [--keep-clone]] [--url <https://site>] [--out <dir>] [--org Adobe] [--reviewer <email>] [--baseline <findings.json>] [--pdf] [--pages ...] [--max-pages 5] [--protected ...] [--api ...] [--no-probes] [--login] [--login-timeout 300] [--state <file>] [--app-host <host>] [--omit-dev] [--concurrency 8] [--model <id>] [--no-cache] [--no-browser] [--no-adjudicate] [--no-issues] [--draft] [--open]\nNeeds --repo, --repo-url, or (for a live-only review) --url.');
   process.exit(flags.help ? 0 : 2);
 }
 if (flags.repo && flags['repo-url']) cli.die('use either --repo or --repo-url, not both', 2);
@@ -51,7 +66,7 @@ if (flags['repo-url']) {
   await lib.mkdirp('/workspace/sbr-src');
   const cloneArgv = ['git', 'clone', ...(flags.ref ? ['--branch', String(flags.ref)] : []), repoUrl, clonePath];
   console.log(`\n▶ ${cloneArgv.join(' ')}`);
-  const c = await exec.spawn(cloneArgv);
+  const c = await timed('git clone', cloneArgv);
   if (c.stdout) process.stdout.write(c.stdout);
   if (c.exitCode !== 0) {
     if (c.stderr) process.stderr.write(c.stderr);
@@ -85,7 +100,7 @@ if (flags.url) {
     stages.push(['sbr-browse', '--url', String(flags.url), '--out', out, ...pass(['pages', 'max-pages', 'protected', 'api', 'settle-ms', 'no-probes', 'login', 'login-timeout', 'state', 'app-host'])]);
   }
 }
-if (!flags['no-adjudicate']) stages.push(['sbr-adjudicate', '--out', out, ...pass(['concurrency', 'model'])]);
+if (!flags['no-adjudicate']) stages.push(['sbr-adjudicate', '--out', out, ...pass(['concurrency', 'model', 'no-cache'])]);
 stages.push(['sbr-report', '--out', out, '--site-name', String(flags['site-name']), ...pass(['org', 'reviewer', 'date', 'baseline', 'pdf', 'draft'])]);
 
 let failure = null;
@@ -94,7 +109,7 @@ for (const argv of stages) {
   if (argv[0] === 'sbr-browse' && flags.login) {
     console.log('  A tab will open in the foreground: sign in there. The review continues on its own once you are back on the site.');
   }
-  const r = await exec.spawn(argv);
+  const r = await timed(argv[0] === 'sbr-browse' && flags.login ? 'sbr-browse (incl. sign-in)' : argv[0], argv);
   if (r.stdout) process.stdout.write(r.stdout);
   if (r.stderr) process.stderr.write(r.stderr);
   if (r.exitCode !== 0) {
@@ -105,7 +120,7 @@ for (const argv of stages) {
 if (!failure && repo && !flags['no-issues']) {
   const issuesArgv = ['sbr-issues', '--out', out, ...pass(['concurrency', 'model'])];
   console.log(`\n▶ ${issuesArgv.join(' ')}`);
-  const r = await exec.spawn(issuesArgv);
+  const r = await timed('sbr-issues', issuesArgv);
   if (r.stdout) process.stdout.write(r.stdout);
   if (r.stderr) process.stderr.write(r.stderr);
   if (r.exitCode !== 0) console.log('  (issue drafting failed; the report is unaffected — re-run sbr-issues with --repo access to retry)');
@@ -119,6 +134,7 @@ if (clonePath) {
     console.log(`\nRemoved temporary clone ${clonePath}`);
   }
 }
+printTimings();
 if (failure) {
   cli.die(`${failure.stage} failed (exit ${failure.code}); later stages skipped. Fix and re-run that stage${clonePath ? ` (use --repo ${clonePath} for code stages)` : ''}.`, failure.code);
 }

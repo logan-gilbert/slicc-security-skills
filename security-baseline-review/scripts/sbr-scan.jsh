@@ -73,7 +73,9 @@ const res = {};
 for (const id of order) res[id] = { status: null, evidence: [], auto_note: '' };
 const add = (id, file, line, snippet, note) => res[id].evidence.push(lib.ev(file, line, snippet, note));
 
-const allFiles = await lib.walk(REPO, SKIP_DIRS, MAX_BYTES);
+// Agent/editor worktrees duplicate the whole codebase and would double every finding.
+const SKIP_PATH = (p) => /\/\.(claude|agents|cursor|codex)\/worktrees$|\/\.worktrees$/.test(p);
+const allFiles = await lib.walk(REPO, SKIP_DIRS, MAX_BYTES, SKIP_PATH);
 const files = allFiles.filter(isScanned);
 const headerHits = new Set();
 const authSignals = [];
