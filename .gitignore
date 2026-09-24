@@ -1,0 +1,5 @@
+citation-image-analysis/
+.DS_Store
+security-review-out/
+auth-state.json
+*.har

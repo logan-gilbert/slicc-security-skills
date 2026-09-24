@@ -2,14 +2,20 @@
 //
 // Usage: sbr-browse --url <https://site> [--out <dir>] [--pages /a,/b] [--max-pages 5]
 //                   [--protected /api/me,/private] [--api https://api.site/x] [--settle-ms 2500] [--no-probes]
+//                   [--login] [--login-timeout 300] [--state <auth-state.json>] [--app-host <host>]
 //
-//   --pages      extra paths/URLs to review (base URL is always first)
-//   --max-pages  crawl budget; same-origin links from the base page fill any spare slots
-//   --protected  URLs that should require the reviewer's session (SEC-12 comparison)
-//   --api        extra endpoints for the SEC-06 CORS probe
-//   --no-probes  observation only: skip the CORS, protected-URL and http:// probes
+//   --pages          extra paths/URLs to review (base URL is always first)
+//   --max-pages      crawl budget; same-origin links from the base page fill any spare slots
+//   --protected      URLs that should require the reviewer's session (SEC-12 comparison)
+//   --api            extra endpoints for the SEC-06 CORS probe
+//   --no-probes      observation only: skip the CORS, protected-URL and http:// probes
+//   --login          open the site in the foreground and wait for you to sign in before scanning;
+//                    the session is saved to <out>/auth-state.json for --state on later runs
+//   --login-timeout  seconds to wait for sign-in (default 300)
+//   --state          restore a saved session (playwright-cli state-save file) instead of signing in
+//   --app-host       host the app is served from after sign-in (default: the --url host)
 //
-// Log in to the site in SLICC's browser first (or `playwright-cli state-load`) when it is gated.
+// Pages that end on any other host (e.g. the identity provider) are skipped, never scored.
 // Probes are GET-only and never send payloads. Crawling skips logout/delete-style links.
 
 const cli = require('sliccy:cli');
@@ -18,7 +24,7 @@ const lib = require('./sbr-lib.js');
 
 const { flags } = process.argv.parseFlags();
 if (flags.help || !flags.url) {
-  cli.help('Usage: sbr-browse --url <https://site> [--out <dir>] [--pages /a,/b] [--max-pages 5] [--protected /x,/y] [--api <url,...>] [--settle-ms 2500] [--no-probes]');
+  cli.help('Usage: sbr-browse --url <https://site> [--out <dir>] [--pages /a,/b] [--max-pages 5] [--protected /x,/y] [--api <url,...>] [--settle-ms 2500] [--no-probes] [--login] [--login-timeout 300] [--state <file>] [--app-host <host>]');
   process.exit(flags.help ? 0 : 2);
 }
 let target;
@@ -32,9 +38,25 @@ const findingsPath = `${OUT}/findings.json`;
 const MAX_PAGES = Math.max(1, Number(flags['max-pages'] || 5));
 const SETTLE_MS = Math.max(0, Number(flags['settle-ms'] || 2500));
 const PROBES = !flags['no-probes'];
+const LOGIN = !!flags.login;
+const LOGIN_TIMEOUT_MS = Math.max(30, Number(flags['login-timeout'] || 300)) * 1000;
+const STATE = flags.state ? String(flags.state) : null;
+const APP_HOST = String(flags['app-host'] || target.host).toLowerCase();
+const APP_HOSTNAME = APP_HOST.split(':')[0];
 const list = (v) => (v ? String(v).split(',').map((s) => s.trim()).filter(Boolean) : []);
 const abs = (u) => new URL(u, target.origin).href;
 const noHash = (u) => String(u).split('#')[0];
+const hostOf = (u) => {
+  try {
+    return new URL(u).host.toLowerCase();
+  } catch {
+    return '';
+  }
+};
+const cookieForApp = (c) => {
+  const d = String(c.domain || '').replace(/^\./, '').toLowerCase();
+  return !!d && (APP_HOSTNAME === d || APP_HOSTNAME.endsWith(`.${d}`));
+};
 const UNSAFE_LINK = /(log-?out|sign-?out|logoff|delete|remove|unsubscribe|revoke|destroy)/i;
 
 function parseRequests(stdout) {
@@ -92,12 +114,66 @@ let httpProbe = null;
 const corsResults = [];
 const protectedResults = [];
 
-const tab = await lib.openTab('about:blank');
+async function currentHref(tab) {
+  try {
+    return noHash(await browser.eval(tab, () => location.href));
+  } catch {
+    return '';
+  }
+}
+
+// Only reads location.href, so the user can sign in without the script fighting them for the page.
+async function waitForLogin(tab) {
+  console.log(`Sign in to ${target.host} in the tab that just opened. Waiting up to ${LOGIN_TIMEOUT_MS / 1000}s for a return to ${APP_HOST}…`);
+  const deadline = Date.now() + LOGIN_TIMEOUT_MS;
+  let leftApp = false;
+  let onAppSince = 0;
+  while (Date.now() < deadline) {
+    await lib.sleep(3000);
+    const href = await currentHref(tab);
+    const host = hostOf(href);
+    if (!host) continue;
+    if (host !== APP_HOST) {
+      leftApp = true;
+      onAppSince = 0;
+      continue;
+    }
+    onAppSince = onAppSince || Date.now();
+    // Already signed in: no redirect happens, so require a short stable period instead.
+    if (leftApp || Date.now() - onAppSince >= 8000) {
+      await lib.sleep(SETTLE_MS);
+      await lib.mkdirp(OUT);
+      const statePath = `${OUT}/auth-state.json`;
+      const s = await lib.pw(['state-save', `--tab=${tab}`, `--filename=${statePath}`]);
+      console.log(s.exitCode === 0
+        ? `Signed in. Session saved to ${statePath} — it holds live session cookies; delete it after the review.`
+        : 'Signed in (session could not be saved; --state will not be available).');
+      return;
+    }
+  }
+  throw new Error(`Timed out after ${LOGIN_TIMEOUT_MS / 1000}s waiting for sign-in to return to ${APP_HOST}. Re-run with a longer --login-timeout or check --app-host.`);
+}
+
+async function restoreSession(tab) {
+  const r = await lib.pw(['state-load', STATE, `--tab=${tab}`]);
+  if (r.exitCode !== 0) throw new Error(`state-load ${STATE} failed: ${(r.stderr || r.stdout).trim()}`);
+  await lib.pw(['goto', `--tab=${tab}`, target.href]);
+  await lib.sleep(SETTLE_MS);
+  if (hostOf(await currentHref(tab)) !== APP_HOST && !LOGIN) {
+    throw new Error(`Saved session in ${STATE} did not reach ${APP_HOST} (expired?). Re-run with --login.`);
+  }
+}
+
+const tab = await lib.openTab(LOGIN || STATE ? target.href : 'about:blank', LOGIN ? ['--foreground'] : []);
 let probeTab = null;
 try {
+  if (STATE) await restoreSession(tab);
+  if (LOGIN) await waitForLogin(tab);
+  // Armed only after sign-in so identity-provider traffic never enters the capture.
   await lib.pw(['requests', `--tab=${tab}`, '--clear']);
   const queue = [target.href, ...list(flags.pages).map(abs)];
   const seen = new Set();
+  let linksCollected = false;
 
   for (let i = 0; i < queue.length && pages.length < MAX_PAGES; i++) {
     const url = noHash(queue[i]);
@@ -109,7 +185,12 @@ try {
       continue;
     }
     await lib.sleep(SETTLE_MS);
-    const href = noHash(await browser.eval(tab, () => location.href));
+    const href = await currentHref(tab);
+    if (hostOf(href) !== APP_HOST) {
+      pages.push({ url, finalUrl: href, error: `ended on ${hostOf(href) || 'an unknown page'}, not ${APP_HOST} (sign-in page?)` });
+      await lib.pw(['requests', `--tab=${tab}`, '--clear']);
+      continue;
+    }
     const all = parseRequests((await lib.pw(['requests', `--tab=${tab}`, '--static'])).stdout);
     const dynamic = new Set(parseRequests((await lib.pw(['requests', `--tab=${tab}`])).stdout).map((r) => r.index));
     for (const r of all) requestUrls.add(r.url);
@@ -133,7 +214,8 @@ try {
     ]));
     pages.push({ url, finalUrl: href, status: docReq ? docReq.status : null, headers, metaCsp: String(metaCsp || ''), resources });
 
-    if (pages.length === 1) {
+    if (!linksCollected) {
+      linksCollected = true;
       const links = await evalJson(tab, () => JSON.stringify([...new Set([...document.querySelectorAll('a[href]')]
         .map((a) => a.href.split('#')[0]).filter((h) => h.startsWith(`${location.origin}/`)))]));
       for (const l of links) if (!UNSAFE_LINK.test(l) && !/\.(pdf|zip|png|jpe?g|svg|mp4|docx?|xlsx?)$/i.test(l)) queue.push(l);
@@ -148,7 +230,7 @@ try {
   const ok = pages.filter((p) => !p.error);
   if (ok.length) {
     await lib.pw(['goto', `--tab=${tab}`, target.href]);
-    cookies = parseCookies((await lib.pw(['cookie-list', `--tab=${tab}`])).stdout);
+    cookies = parseCookies((await lib.pw(['cookie-list', `--tab=${tab}`])).stdout).filter(cookieForApp);
     storageKeys = await evalJson(tab, () => {
       try {
         return JSON.stringify(Object.keys(localStorage));
@@ -187,7 +269,8 @@ const findings = {};
 const loc = (p) => `(browser) ${p.finalUrl || p.url}`;
 
 if (!ok.length) {
-  const note = `No page loaded in the browser (${pages.map((p) => p.error).join('; ') || 'unknown error'}).`;
+  const offHost = pages.some((p) => /sign-in page/.test(p.error || ''));
+  const note = `No page on ${APP_HOST} loaded in the browser (${pages.map((p) => p.error).join('; ') || 'unknown error'}).${offHost && !LOGIN ? ' The site redirected to sign-in: re-run with --login.' : ''}`;
   for (const id of ['SEC-04', 'SEC-05', 'SEC-14']) findings[id] = { status: 'skipped', evidence: [], auto_note: note };
 } else {
   const analyses = ok.map((p) => ({ p, a: p.headers ? lib.analyzeHeaders(p.headers, p.metaCsp) : null }));
@@ -330,6 +413,8 @@ for (const [id, f] of Object.entries(findings)) {
 }
 doc.live_url = doc.live_url || target.href;
 doc.pages_reviewed = ok.map((p) => p.finalUrl);
+doc.pages_skipped = pages.filter((p) => p.error).map((p) => ({ url: p.url, reason: p.error }));
 await lib.writeJson(findingsPath, doc);
 lib.printSummary(doc.checks, Object.keys(findings).sort());
-console.log(`\nReviewed ${ok.length} page(s)${pages.length - ok.length ? `, ${pages.length - ok.length} failed to load` : ''}. Merged into ${findingsPath}`);
+console.log(`\nReviewed ${ok.length} page(s) on ${APP_HOST}. Merged into ${findingsPath}`);
+for (const p of pages.filter((x) => x.error)) console.log(`  skipped ${p.url}: ${p.error}`);

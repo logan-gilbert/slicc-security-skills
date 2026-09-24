@@ -205,8 +205,8 @@ async function pw(args) {
   return exec.spawn(['playwright-cli', ...args]);
 }
 
-async function openTab(url) {
-  const r = await pw(['open', url || 'about:blank']);
+async function openTab(url, extraArgs = []) {
+  const r = await pw(['open', url || 'about:blank', ...extraArgs]);
   const m = /targetId:\s*([^\]\s]+)/.exec(`${r.stdout}\n${r.stderr}`);
   if (r.exitCode !== 0 || !m) throw new Error(`playwright-cli open failed: ${(r.stderr || r.stdout).trim()}`);
   return m[1];

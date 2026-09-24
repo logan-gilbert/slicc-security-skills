@@ -42,16 +42,22 @@ Ask for whatever is missing:
   lets you read published sheets for SEC-09.
 - **Live URL** (recommended) and **authorization**: confirm the user is authorized to test that
   site. Without explicit confirmation, run `sbr-browse --no-probes` (observation only).
-- **Is the site gated?** If so, have the user log in to it in SLICC's browser first (or
-  `playwright-cli state-load`), and ask which URLs must require login → `--protected`.
+- **Is the site gated?** If so, pass `--login`: the site opens in a foreground tab, the user signs
+  in there, and the scan starts once the tab is back on the site (`--login-timeout` seconds, default
+  300). The session is saved to `<out>/auth-state.json`; reuse it with `--state <file>`. If the app
+  lives on a different host than `--url` after sign-in, pass `--app-host`. Pages that end on any
+  other host (e.g. the identity provider) are skipped and listed, never scored. Also ask which URLs
+  must require login → `--protected`.
 - **Site name**, **org** (default Adobe), **reviewer**, optional **prior findings.json** (`--baseline`).
 
 ## 2. Run the review
 
 ```bash
 sbr-review --repo /mnt/site --url https://site.example --site-name "Site Name" \
-  --reviewer me@adobe.com --protected /api/me,/private --pdf
+  --reviewer me@adobe.com --protected /api/me,/private --login --pdf --open
 ```
+
+`--open` opens the HTML report in a tab when every stage succeeds.
 
 Or stage by stage (same flags) when you need to inspect or re-run a step. Always restart from
 `sbr-scan`: it rewrites `findings.json`, and later stages merge into it.
@@ -106,4 +112,5 @@ load generation, or testing a site the user has not confirmed they may test.
 
 - Don't deliver a report with unconfirmed AI-assisted `fail`s or a DRAFT stamp.
 - Don't paste secret values, cookie values, or tokens into notes or chat — evidence is already masked.
+- Don't keep or share `auth-state.json`: it holds live session cookies. Delete it after the review.
 - Don't hand-edit checks into the scripts; tune `checklist.json` (data) instead.
